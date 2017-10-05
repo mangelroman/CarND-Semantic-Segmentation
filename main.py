@@ -129,25 +129,31 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     # TODO: Implement function
 
     sess.run(tf.global_variables_initializer())
+    lr_value = 0.001
 
     for epoch in range(epochs):
-        total_loss = 0
-        start = time.time()
+        avg_loss = 0
 
+        # if epoch == 10:
+        #     lr_value = 0.0005
+        #
+        # if epoch == 20:
+        #     lr_value = 0.0001
+
+        start = time.clock()
         for images, labels in get_batches_fn(batch_size):
-
             _, loss = sess.run([train_op, cross_entropy_loss],
                                feed_dict={input_image: images,
                                           correct_label: labels,
                                           keep_prob: 1.0,
-                                          learning_rate: 0.001})
+                                          learning_rate: lr_value})
 
-            total_loss += loss
+            avg_loss += (loss / len(images))
 
-        elapsed_m, elapsed_s = [int(x) for x in divmod(time.time() - start, 60)]
+        end = time.clock()
+        elapsed_m, elapsed_s = [int(x) for x in divmod(end - start, 60)]
 
-        print("EPOCH {:>2d} Loss = {:10.8f}/{:10.8f} Time = {:2d}m{:02d}s/{:2d}m{:02d}s".
-            format(epoch+1, total_loss, total_loss, elapsed_m, elapsed_s, elapsed_m, elapsed_s))
+        print("EPOCH {:>2d} Loss = {:10.8f} Time = {:2d}m{:02d}s".format(epoch+1, avg_loss, elapsed_m, elapsed_s))
 
     pass
 tests.test_train_nn(train_nn)
@@ -157,7 +163,7 @@ def run():
     num_classes = 2
     image_shape = (160, 576)
     batch_size = 1
-    epochs = 10
+    epochs = 25
     data_dir = './data'
     runs_dir = './runs'
     logs_dir = './logs'
