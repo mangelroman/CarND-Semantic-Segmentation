@@ -98,7 +98,7 @@ def test_optimize(optimize):
     layers_output = tf.Variable(tf.zeros(shape))
     correct_label = tf.placeholder(tf.float32, [None, None, None, num_classes])
     learning_rate = tf.placeholder(tf.float32)
-    logits, train_op, cross_entropy_loss = optimize(layers_output, correct_label, learning_rate, num_classes)
+    logits, train_op, cross_entropy_loss, iou = optimize(layers_output, correct_label, learning_rate, num_classes)
 
     _assert_tensor_shape(logits, [2*3*4, num_classes], 'Logits')
 
@@ -115,16 +115,24 @@ def test_train_nn(train_nn):
     epochs = 1
     batch_size = 2
 
-    def get_batches_fn(batach_size_parm):
-        shape = [batach_size_parm, 2, 3, 3]
+    def get_batches_fn(batch_size_param):
+        shape = [batch_size_param, 2, 3, 3]
         return np.arange(np.prod(shape)).reshape(shape)
+
+    class Writer:
+        def add_summary(self, summary, global_step):
+            pass
 
     train_op = tf.constant(0)
     cross_entropy_loss = tf.constant(10.11)
+    mean_iou = tf.constant(1.0)
     input_image = tf.placeholder(tf.float32, name='input_image')
     correct_label = tf.placeholder(tf.float32, name='correct_label')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    tf.summary.scalar('loss', 0.0)
+    writer = Writer()
+
     with tf.Session() as sess:
         parameters = {
             'sess': sess,
@@ -133,10 +141,12 @@ def test_train_nn(train_nn):
             'get_batches_fn': get_batches_fn,
             'train_op': train_op,
             'cross_entropy_loss': cross_entropy_loss,
+            'mean_iou': mean_iou,
             'input_image': input_image,
             'correct_label': correct_label,
             'keep_prob': keep_prob,
-            'learning_rate': learning_rate}
+            'learning_rate': learning_rate,
+            'writer': writer}
         _prevent_print(train_nn, parameters)
 
 

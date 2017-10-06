@@ -74,7 +74,6 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    # TODO: Implement function
     layer8 = deconv_layer(conv1x1_layer(vgg_layer7_out, num_classes), num_classes, 4, 2)
 
     layer8_4 = tf.add(layer8, conv1x1_layer(vgg_layer4_out, num_classes))
@@ -99,41 +98,51 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :param correct_label: TF Placeholder for the correct label image
     :param learning_rate: TF Placeholder for the learning rate
     :param num_classes: Number of classes to classify
-    :return: Tuple of (logits, train_op, cross_entropy_loss)
+    :return: Tuple of (logits, train_op, cross_entropy_loss, mean_iou)
     """
-    # TODO: Implement function
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    labels = tf.reshape(correct_label, (-1, num_classes))
 
-    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
+
+    # softmax = tf.nn.softmax(logits)
+    # predictions = (softmax > 0.5)
+    # mean_iou = tf.metrics.mean_iou(labels=labels, predictions=predictions, num_classes=num_classes)
+    mean_iou = tf.nn.softmax(logits)
+
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
+    tf.summary.scalar('learning rate', learning_rate)
+    tf.summary.scalar('loss', cross_entropy_loss)
 
-    return logits, train_op, cross_entropy_loss
+    return logits, train_op, cross_entropy_loss, mean_iou
 tests.test_optimize(optimize)
 
 
-def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
-             correct_label, keep_prob, learning_rate):
+def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, mean_iou,
+             input_image, correct_label, keep_prob, learning_rate, writer):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
     :param epochs: Number of epochs
     :param batch_size: Batch size
-    :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
+    :param get_batches_fn: Function to get batches of data.  Call using get_batches_fn(batch_size)
     :param train_op: TF Operation to train the neural network
     :param cross_entropy_loss: TF Tensor for the amount of loss
+    :param mean_iou: TF Tensor for the interface over union
     :param input_image: TF Placeholder for input images
     :param correct_label: TF Placeholder for label images
     :param keep_prob: TF Placeholder for dropout keep probability
     :param learning_rate: TF Placeholder for learning rate
+    :param writer: TF Summary Writer to add training events
     """
-    # TODO: Implement function
+    summary_op = tf.summary.merge_all()
 
     sess.run(tf.global_variables_initializer())
-    lr_value = 0.001
+    lr_value = 0.0001
 
     for epoch in range(epochs):
-        avg_loss = 0
-
+        avg_train_loss = 0
+        avg_val_loss = 0
         # if epoch == 10:
         #     lr_value = 0.0005
         #
@@ -142,18 +151,35 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
 
         start = time.clock()
         for images, labels in get_batches_fn(batch_size):
-            _, loss = sess.run([train_op, cross_entropy_loss],
-                               feed_dict={input_image: images,
-                                          correct_label: labels,
-                                          keep_prob: 1.0,
-                                          learning_rate: lr_value})
+            _, loss, iou = sess.run([train_op, cross_entropy_loss, mean_iou],
+                                    feed_dict={input_image: images,
+                                               correct_label: labels,
+                                               keep_prob: 1.0,
+                                               learning_rate: lr_value})
 
-            avg_loss += (loss / len(images))
+            avg_train_loss += (loss / len(images))
 
         end = time.clock()
-        elapsed_m, elapsed_s = [int(x) for x in divmod(end - start, 60)]
+        elapsed_train_m, elapsed_train_s = [int(x) for x in divmod(end - start, 60)]
 
-        print("EPOCH {:>2d} Loss = {:10.8f} Time = {:2d}m{:02d}s".format(epoch+1, avg_loss, elapsed_m, elapsed_s))
+        summary = sess.run([summary_op], feed_dict={})
+        writer.add_summary(summary[0], epoch)
+
+        start = time.clock()
+        # for images, labels in get_batches_fn(batch_size, val=True):
+        #     loss, summary = sess.run([cross_entropy_loss, summary_op],
+        #                              feed_dict={input_image: images,
+        #                                         correct_label: labels,
+        #                                         keep_prob: 1.0})
+        #
+        #     avg_val_loss += (loss / len(images))
+        #     writer.add_summary(summary, epoch)
+
+        end = time.clock()
+        elapsed_val_m, elapsed_val_s = [int(x) for x in divmod(end - start, 60)]
+
+        print("EPOCH {:>2d} Loss = {:10.8f}/{:10.8f} Time = {:2d}m{:02d}s/{:2d}m{:02d}s".format(
+            epoch+1, avg_train_loss, avg_val_loss, elapsed_train_m, elapsed_train_s, elapsed_val_m, elapsed_val_s))
 
     pass
 tests.test_train_nn(train_nn)
@@ -190,21 +216,22 @@ def run():
 
         input_image, keep_prob, layer3out, layer4out, layer7out = load_vgg(sess, vgg_path)
         output = layers(layer3out, layer4out, layer7out, num_classes)
-        logits, train_op, cross_entropy_loss = optimize(output, correct_label, learning_rate, num_classes)
+        logits, train_op, cross_entropy_loss, mean_iou = optimize(output, correct_label, learning_rate, num_classes)
 
         writer = tf.summary.FileWriter(logs_dir, sess.graph)
 
-        # TODO: Train NN using the train_nn function
         train_nn(sess,
                  epochs,
                  batch_size,
                  get_batches_fn,
                  train_op,
                  cross_entropy_loss,
+                 mean_iou,
                  input_image,
                  correct_label,
                  keep_prob,
-                 learning_rate)
+                 learning_rate,
+                 writer)
 
         # TODO: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
