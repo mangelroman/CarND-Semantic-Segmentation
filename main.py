@@ -105,10 +105,9 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
 
-    # softmax = tf.nn.softmax(logits)
-    # predictions = (softmax > 0.5)
-    # mean_iou = tf.metrics.mean_iou(labels=labels, predictions=predictions, num_classes=num_classes)
-    mean_iou = tf.nn.softmax(logits)
+    softmax = tf.nn.softmax(logits)
+    predictions = (softmax > 0.5)
+    mean_iou = tf.metrics.mean_iou(labels=labels, predictions=predictions, num_classes=num_classes)
 
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
     tf.summary.scalar('learning rate', learning_rate)
@@ -135,13 +134,14 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     :param writer: TF Summary Writer to add training events
     """
-    summary_op = tf.summary.merge_all()
+    merged = tf.summary.merge_all()
 
     sess.run(tf.global_variables_initializer())
     lr_value = 0.0001
 
     for epoch in range(epochs):
         avg_train_loss = 0
+        avg_iou = 0
         avg_val_loss = 0
         # if epoch == 10:
         #     lr_value = 0.0005
@@ -149,23 +149,38 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         # if epoch == 20:
         #     lr_value = 0.0001
 
+        step = 0
         start = time.clock()
         for images, labels in get_batches_fn(batch_size):
-            _, loss, iou = sess.run([train_op, cross_entropy_loss, mean_iou],
-                                    feed_dict={input_image: images,
-                                               correct_label: labels,
-                                               keep_prob: 1.0,
-                                               learning_rate: lr_value})
-
+            if (step % 10 == 9):
+                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
+                _, loss, iou, summary = sess.run([train_op, cross_entropy_loss, mean_iou, merged],
+                                                 feed_dict={input_image: images,
+                                                            correct_label: labels,
+                                                            keep_prob: 1.0,
+                                                            learning_rate: lr_value},
+                                                 options=run_options,
+                                                 run_metadata=run_metadata)
+                writer.add_run_metadata(run_metadata, 'step%d' % step)
+            else:
+                _, loss, iou, summary = sess.run([train_op, cross_entropy_loss, mean_iou, merged],
+                                                 feed_dict={input_image: images,
+                                                            correct_label: labels,
+                                                            keep_prob: 1.0,
+                                                            learning_rate: lr_value})
+            writer.add_summary(summary, step)
             avg_train_loss += (loss / len(images))
+            avg_iou += (iou / len(images))
+            step += 1
 
         end = time.clock()
         elapsed_train_m, elapsed_train_s = [int(x) for x in divmod(end - start, 60)]
 
-        summary = sess.run([summary_op], feed_dict={})
-        writer.add_summary(summary[0], epoch)
+        print("EPOCH {:>2d} Loss = {:10.8f} IoU = {:10.8f} Time = {:2d}m{:02d}s".format(
+            epoch+1, avg_train_loss, avg_iou, elapsed_train_m, elapsed_train_s))
 
-        start = time.clock()
+        # start = time.clock()
         # for images, labels in get_batches_fn(batch_size, val=True):
         #     loss, summary = sess.run([cross_entropy_loss, summary_op],
         #                              feed_dict={input_image: images,
@@ -174,12 +189,12 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         #
         #     avg_val_loss += (loss / len(images))
         #     writer.add_summary(summary, epoch)
-
-        end = time.clock()
-        elapsed_val_m, elapsed_val_s = [int(x) for x in divmod(end - start, 60)]
-
-        print("EPOCH {:>2d} Loss = {:10.8f}/{:10.8f} Time = {:2d}m{:02d}s/{:2d}m{:02d}s".format(
-            epoch+1, avg_train_loss, avg_val_loss, elapsed_train_m, elapsed_train_s, elapsed_val_m, elapsed_val_s))
+        #
+        # end = time.clock()
+        # elapsed_val_m, elapsed_val_s = [int(x) for x in divmod(end - start, 60)]
+        #
+        # print("EPOCH {:>2d} Loss = {:10.8f}/{:10.8f} Time = {:2d}m{:02d}s/{:2d}m{:02d}s".format(
+        #     epoch+1, avg_train_loss, avg_val_loss, elapsed_train_m, elapsed_train_s, elapsed_val_m, elapsed_val_s))
 
     pass
 tests.test_train_nn(train_nn)
