@@ -104,11 +104,8 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     labels = tf.reshape(correct_label, (-1, num_classes))
 
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
+    mean_iou = tf.metrics.mean_iou(tf.argmax(labels, 1), tf.argmax(logits, 1), num_classes)
 
-    softmax = tf.nn.softmax(logits)
-    predictions = tf.greater(softmax, 0.5)
-
-    mean_iou = tf.metrics.mean_iou(labels, predictions, num_classes)
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss, mean_iou
@@ -173,7 +170,7 @@ tests.test_train_nn(train_nn)
 
 def run():
     num_classes = 2
-    image_shape = (224, 736)
+    image_shape = (160, 576)
     batch_size = 1
     epochs = 30
     data_dir = './data'
