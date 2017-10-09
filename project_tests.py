@@ -123,14 +123,16 @@ def test_train_nn(train_nn):
         def add_summary(self, summary, global_step):
             pass
 
+        def flush(self):
+            pass
+
     train_op = tf.constant(0)
     cross_entropy_loss = tf.constant(10.11)
-    mean_iou = tf.constant(1.0)
+    mean_iou = tf.constant((1.0, 1.0))
     input_image = tf.placeholder(tf.float32, name='input_image')
     correct_label = tf.placeholder(tf.float32, name='correct_label')
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-    tf.summary.scalar('loss', 0.0)
     writer = Writer()
 
     with tf.Session() as sess:

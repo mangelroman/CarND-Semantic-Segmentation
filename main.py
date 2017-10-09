@@ -105,13 +105,10 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
 
-    softmax = tf.nn.softmax(logits)
-    predictions = (softmax > 0.5)
-    mean_iou = tf.metrics.mean_iou(labels=labels, predictions=predictions, num_classes=num_classes)
+    mean_iou = tf.metrics.mean_iou(labels=tf.argmax(labels, 1), predictions=tf.argmax(logits, 1), num_classes=num_classes)
 
-    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
-    tf.summary.scalar('learning rate', learning_rate)
-    tf.summary.scalar('loss', cross_entropy_loss)
+    #train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
+    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(1 - mean_iou)
 
     return logits, train_op, cross_entropy_loss, mean_iou
 tests.test_optimize(optimize)
@@ -134,77 +131,54 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     :param writer: TF Summary Writer to add training events
     """
-    merged = tf.summary.merge_all()
-
     sess.run(tf.global_variables_initializer())
+    sess.run(tf.local_variables_initializer())
+
     lr_value = 0.0001
 
     for epoch in range(epochs):
         avg_train_loss = 0
         avg_iou = 0
-        avg_val_loss = 0
+        num_images = 0
+        step = 0
         # if epoch == 10:
-        #     lr_value = 0.0005
+        #     lr_value = 0.00005
         #
         # if epoch == 20:
-        #     lr_value = 0.0001
-
-        step = 0
-        start = time.clock()
+        #     lr_value = 0.00001
+        start = time.time()
         for images, labels in get_batches_fn(batch_size):
-            if (step % 10 == 9):
-                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                run_metadata = tf.RunMetadata()
-                _, loss, iou, summary = sess.run([train_op, cross_entropy_loss, mean_iou, merged],
-                                                 feed_dict={input_image: images,
-                                                            correct_label: labels,
-                                                            keep_prob: 1.0,
-                                                            learning_rate: lr_value},
-                                                 options=run_options,
-                                                 run_metadata=run_metadata)
-                writer.add_run_metadata(run_metadata, 'step%d' % step)
-            else:
-                _, loss, iou, summary = sess.run([train_op, cross_entropy_loss, mean_iou, merged],
-                                                 feed_dict={input_image: images,
-                                                            correct_label: labels,
-                                                            keep_prob: 1.0,
-                                                            learning_rate: lr_value})
-            writer.add_summary(summary, step)
-            avg_train_loss += (loss / len(images))
-            avg_iou += (iou / len(images))
+            _, loss, iou = sess.run([train_op, cross_entropy_loss, mean_iou],
+                                    feed_dict={input_image: images,
+                                               correct_label: labels,
+                                               keep_prob: 1.0,
+                                               learning_rate: lr_value})
+            avg_train_loss += (loss * len(images))
+            avg_iou += (iou[0] * len(images))
+            num_images += len(images)
             step += 1
 
-        end = time.clock()
+        end = time.time()
         elapsed_train_m, elapsed_train_s = [int(x) for x in divmod(end - start, 60)]
+        avg_train_loss /= num_images
+        avg_iou /= num_images
+        epoch_summary = tf.Summary()
+        epoch_summary.value.add(tag='loss', simple_value=avg_train_loss)
+        epoch_summary.value.add(tag='iou', simple_value=avg_iou)
+        writer.add_summary(epoch_summary, epoch)
+        writer.flush()
 
         print("EPOCH {:>2d} Loss = {:10.8f} IoU = {:10.8f} Time = {:2d}m{:02d}s".format(
             epoch+1, avg_train_loss, avg_iou, elapsed_train_m, elapsed_train_s))
-
-        # start = time.clock()
-        # for images, labels in get_batches_fn(batch_size, val=True):
-        #     loss, summary = sess.run([cross_entropy_loss, summary_op],
-        #                              feed_dict={input_image: images,
-        #                                         correct_label: labels,
-        #                                         keep_prob: 1.0})
-        #
-        #     avg_val_loss += (loss / len(images))
-        #     writer.add_summary(summary, epoch)
-        #
-        # end = time.clock()
-        # elapsed_val_m, elapsed_val_s = [int(x) for x in divmod(end - start, 60)]
-        #
-        # print("EPOCH {:>2d} Loss = {:10.8f}/{:10.8f} Time = {:2d}m{:02d}s/{:2d}m{:02d}s".format(
-        #     epoch+1, avg_train_loss, avg_val_loss, elapsed_train_m, elapsed_train_s, elapsed_val_m, elapsed_val_s))
-
-    pass
+    return
 tests.test_train_nn(train_nn)
 
 
 def run():
     num_classes = 2
-    image_shape = (160, 576)
+    image_shape = (224, 736)
     batch_size = 1
-    epochs = 25
+    epochs = 30
     data_dir = './data'
     runs_dir = './runs'
     logs_dir = './logs'
@@ -233,7 +207,7 @@ def run():
         output = layers(layer3out, layer4out, layer7out, num_classes)
         logits, train_op, cross_entropy_loss, mean_iou = optimize(output, correct_label, learning_rate, num_classes)
 
-        writer = tf.summary.FileWriter(logs_dir, sess.graph)
+        writer = tf.summary.FileWriter(os.path.join(logs_dir, str(int(time.time()))), sess.graph)
 
         train_nn(sess,
                  epochs,
@@ -253,7 +227,7 @@ def run():
 
         writer.close()
         # OPTIONAL: Apply the trained model to a video
-
+    return
 
 if __name__ == '__main__':
     run()
