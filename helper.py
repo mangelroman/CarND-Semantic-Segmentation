@@ -65,10 +65,11 @@ def gen_batch_function(data_folder, image_shape):
     :param image_shape: Tuple - Shape of image
     :return:
     """
-    def get_batches_fn(batch_size):
+    def get_batches_fn(batch_size, augment_prob=0.0):
         """
         Create batches of training data
         :param batch_size: Batch Size
+        :param augment_prob: Probability of augmenting the input data
         :return: Batches of training data
         """
         image_paths = glob(os.path.join(data_folder, 'image_2', '*.png'))
@@ -86,6 +87,11 @@ def gen_batch_function(data_folder, image_shape):
 
                 image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
                 gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+
+                if augment_prob > 0:
+                    if np.random.random() < augment_prob:
+                        image = np.fliplr(image)
+                        gt_image = np.fliplr(gt_image)
 
                 gt_bg = np.all(gt_image == background_color, axis=2)
                 gt_bg = gt_bg.reshape(*gt_bg.shape, 1)

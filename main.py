@@ -105,10 +105,11 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
 
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
 
-    mean_iou = tf.metrics.mean_iou(labels=tf.argmax(labels, 1), predictions=tf.argmax(logits, 1), num_classes=num_classes)
+    softmax = tf.nn.softmax(logits)
+    predictions = tf.greater(softmax, 0.5)
 
-    #train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
-    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(1 - mean_iou)
+    mean_iou = tf.metrics.mean_iou(labels, predictions, num_classes)
+    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss, mean_iou
 tests.test_optimize(optimize)
@@ -135,23 +136,19 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     sess.run(tf.local_variables_initializer())
 
     lr_value = 0.0001
+    kp_value = 0.8
 
     for epoch in range(epochs):
         avg_train_loss = 0
         avg_iou = 0
         num_images = 0
         step = 0
-        # if epoch == 10:
-        #     lr_value = 0.00005
-        #
-        # if epoch == 20:
-        #     lr_value = 0.00001
         start = time.time()
-        for images, labels in get_batches_fn(batch_size):
+        for images, labels in get_batches_fn(batch_size, augment_prob=0.5):
             _, loss, iou = sess.run([train_op, cross_entropy_loss, mean_iou],
                                     feed_dict={input_image: images,
                                                correct_label: labels,
-                                               keep_prob: 1.0,
+                                               keep_prob: kp_value,
                                                learning_rate: lr_value})
             avg_train_loss += (loss * len(images))
             avg_iou += (iou[0] * len(images))
