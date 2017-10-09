@@ -84,9 +84,6 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
     out = deconv_layer(layer9_3, num_classes, 16, 8)
 
-    # Add print node to display layer info on execution time
-    #tf.Print(output, [tf.shape(output)])
-
     return out
 tests.test_layers(layers)
 
@@ -176,6 +173,7 @@ def run():
     data_dir = './data'
     runs_dir = './runs'
     logs_dir = './logs'
+    models_dir = './models'
     tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
@@ -185,23 +183,26 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
+    # Path to vgg model
+    vgg_path = os.path.join(data_dir, 'vgg')
+    # Create function to get batches
+    get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
+
+    # OPTIONAL: Augment Images for better results
+    #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
+
+    correct_label = tf.placeholder(tf.int32, (None, None, None, num_classes))
+    learning_rate = tf.placeholder(tf.float32, None)
+
     with tf.Session() as sess:
-        # Path to vgg model
-        vgg_path = os.path.join(data_dir, 'vgg')
-        # Create function to get batches
-        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
-
-        # OPTIONAL: Augment Images for better results
-        #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
-
-        correct_label = tf.placeholder(tf.int32, (None, None, None, num_classes))
-        learning_rate = tf.placeholder(tf.float32, None)
+        session_timestamp = str(int(time.time()))
 
         input_image, keep_prob, layer3out, layer4out, layer7out = load_vgg(sess, vgg_path)
         output = layers(layer3out, layer4out, layer7out, num_classes)
         logits, train_op, cross_entropy_loss, mean_iou = optimize(output, correct_label, learning_rate, num_classes)
 
-        writer = tf.summary.FileWriter(os.path.join(logs_dir, str(int(time.time()))), sess.graph)
+        saver = tf.train.Saver()
+        writer = tf.summary.FileWriter(os.path.join(logs_dir, session_timestamp), sess.graph)
 
         train_nn(sess,
                  epochs,
@@ -216,10 +217,14 @@ def run():
                  learning_rate,
                  writer)
 
-        # TODO: Save inference data using helper.save_inference_samples
-        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
-
         writer.close()
+
+        helper.save_inference_samples(os.path.join(runs_dir, session_timestamp), data_dir, sess, image_shape, logits, keep_prob, input_image)
+        # Make folder for current model
+
+        model_dir = os.path.join(models_dir, session_timestamp)
+        os.makedirs(model_dir)
+        saver.save(sess, os.path.join(model_dir, 'fcn8'))
         # OPTIONAL: Apply the trained model to a video
     return
 
