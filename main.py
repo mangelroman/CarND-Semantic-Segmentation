@@ -1,5 +1,6 @@
 import os.path
 import time
+import argparse
 import tensorflow as tf
 import helper
 import warnings
@@ -23,7 +24,7 @@ def load_vgg(sess, vgg_path):
     Load Pre-trained VGG Model into TensorFlow.
     :param sess: TensorFlow Session
     :param vgg_path: Path to vgg folder, containing "variables/" and "saved_model.pb"
-    :return: Tuple of Tensors from VGG model (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
+    :return: Tuple of Tensors from VGG model (image_input, keep_prob_tensor, layer3_out, layer4_out, layer7_out)
     """
     vgg_tag = 'vgg16'
     vgg_input_tensor_name = 'image_input:0'
@@ -36,12 +37,12 @@ def load_vgg(sess, vgg_path):
 
     graph = tf.get_default_graph()
     image_input = graph.get_tensor_by_name(vgg_input_tensor_name)
-    keep_prob = graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
+    keep_prob_tensor = graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
     layer3_out = graph.get_tensor_by_name(vgg_layer3_out_tensor_name)
     layer4_out = graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
     layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
 
-    return image_input, keep_prob, layer3_out, layer4_out, layer7_out
+    return image_input, keep_prob_tensor, layer3_out, layer4_out, layer7_out
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -75,25 +76,22 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     layer8 = deconv_layer(conv1x1_layer(vgg_layer7_out, num_classes), num_classes, 4, 2)
-
     layer8_4 = tf.add(layer8, conv1x1_layer(vgg_layer4_out, num_classes))
 
     layer9 = deconv_layer(layer8_4, num_classes, 4, 2)
-
     layer9_3 = tf.add(layer9, conv1x1_layer(vgg_layer3_out, num_classes))
 
     out = deconv_layer(layer9_3, num_classes, 16, 8)
-
     return out
 tests.test_layers(layers)
 
 
-def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
+def optimize(nn_last_layer, correct_label, learning_rate_tensor, num_classes):
     """
     Build the TensorFLow loss and optimizer operations.
     :param nn_last_layer: TF Tensor of the last layer in the neural network
     :param correct_label: TF Placeholder for the correct label image
-    :param learning_rate: TF Placeholder for the learning rate
+    :param learning_rate_tensor: TF Placeholder for the learning rate
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss, mean_iou)
     """
@@ -103,47 +101,40 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels))
     mean_iou = tf.metrics.mean_iou(tf.argmax(labels, 1), tf.argmax(logits, 1), num_classes)
 
-    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cross_entropy_loss)
+    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate_tensor).minimize(cross_entropy_loss)
 
     return logits, train_op, cross_entropy_loss, mean_iou
 tests.test_optimize(optimize)
 
 
-def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, mean_iou,
-             input_image, correct_label, keep_prob, learning_rate, writer):
+def train_nn(sess, params, get_batches_fn, train_op, cross_entropy_loss, mean_iou,
+             input_image, correct_label, keep_prob_tensor, learning_rate_tensor, writer):
     """
     Train neural network and print out the loss during training.
     :param sess: TF Session
-    :param epochs: Number of epochs
-    :param batch_size: Batch size
+    :param params: Training parameters
     :param get_batches_fn: Function to get batches of data.  Call using get_batches_fn(batch_size)
     :param train_op: TF Operation to train the neural network
     :param cross_entropy_loss: TF Tensor for the amount of loss
     :param mean_iou: TF Tensor for the interface over union
     :param input_image: TF Placeholder for input images
     :param correct_label: TF Placeholder for label images
-    :param keep_prob: TF Placeholder for dropout keep probability
-    :param learning_rate: TF Placeholder for learning rate
+    :param keep_prob_tensor: TF Placeholder for dropout keep probability
+    :param learning_rate_tensor: TF Placeholder for learning rate
     :param writer: TF Summary Writer to add training events
     """
-    sess.run(tf.global_variables_initializer())
-    sess.run(tf.local_variables_initializer())
-
-    lr_value = 0.0001
-    kp_value = 0.8
-
-    for epoch in range(epochs):
+    for epoch in range(1, params.epochs + 1):
         avg_train_loss = 0
         avg_iou = 0
         num_images = 0
         step = 0
         start = time.time()
-        for images, labels in get_batches_fn(batch_size, augment_prob=0.5):
+        for images, labels in get_batches_fn(params.batch_size, params.augment_prob):
             _, loss, iou = sess.run([train_op, cross_entropy_loss, mean_iou],
                                     feed_dict={input_image: images,
                                                correct_label: labels,
-                                               keep_prob: kp_value,
-                                               learning_rate: lr_value})
+                                               keep_prob_tensor: params.keep_prob,
+                                               learning_rate_tensor: params.learning_rate})
             avg_train_loss += (loss * len(images))
             avg_iou += (iou[0] * len(images))
             num_images += len(images)
@@ -160,16 +151,23 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         writer.flush()
 
         print("EPOCH {:>2d} Loss = {:10.8f} IoU = {:10.8f} Time = {:2d}m{:02d}s".format(
-            epoch+1, avg_train_loss, avg_iou, elapsed_train_m, elapsed_train_s))
+            epoch, avg_train_loss, avg_iou, elapsed_train_m, elapsed_train_s))
     return
 tests.test_train_nn(train_nn)
 
 
 def run():
+    parser = argparse.ArgumentParser(description="Semantic Segmentation Project")
+    parser.add_argument('-e', dest='epochs', type=int, default=30, help="Number of epochs to train the model")
+    parser.add_argument('-b', dest='batch_size', type=int, default=1, help="Training batch size")
+    parser.add_argument('-l', dest='learning_rate', type=float, default=0.0001, help="Training learning rate")
+    parser.add_argument('-k', dest='keep_prob', type=float, default=1.0, help="Training keep probability")
+    parser.add_argument('-a', dest='augment_prob', type=float, default=0.5, help="Augment probability of ")
+    params = parser.parse_args()
+
     num_classes = 2
     image_shape = (160, 576)
-    batch_size = 1
-    epochs = 30
+
     data_dir = './data'
     runs_dir = './runs'
     logs_dir = './logs'
@@ -191,42 +189,68 @@ def run():
     # OPTIONAL: Augment Images for better results
     #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
-    correct_label = tf.placeholder(tf.int32, (None, None, None, num_classes))
-    learning_rate = tf.placeholder(tf.float32, None)
+    correct_label = tf.placeholder(tf.int32, (None, image_shape[0], image_shape[1], num_classes))
+    learning_rate_tensor = tf.placeholder(tf.float32, None)
 
     with tf.Session() as sess:
         session_timestamp = str(int(time.time()))
 
-        input_image, keep_prob, layer3out, layer4out, layer7out = load_vgg(sess, vgg_path)
+        runs_dir = os.path.join(runs_dir, session_timestamp)
+        logs_dir = os.path.join(logs_dir, session_timestamp)
+        models_dir = os.path.join(models_dir, session_timestamp)
+
+        os.makedirs(runs_dir)
+        os.makedirs(logs_dir)
+        os.makedirs(models_dir)
+
+        input_image, keep_prob_tensor, layer3out, layer4out, layer7out = load_vgg(sess, vgg_path)
         output = layers(layer3out, layer4out, layer7out, num_classes)
-        logits, train_op, cross_entropy_loss, mean_iou = optimize(output, correct_label, learning_rate, num_classes)
+        logits, train_op, cross_entropy_loss, mean_iou = optimize(output,
+                                                                  correct_label,
+                                                                  learning_rate_tensor,
+                                                                  num_classes)
 
         saver = tf.train.Saver()
-        writer = tf.summary.FileWriter(os.path.join(logs_dir, session_timestamp), sess.graph)
+        writer = tf.summary.FileWriter(logs_dir, sess.graph)
+
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
 
         train_nn(sess,
-                 epochs,
-                 batch_size,
+                 params,
                  get_batches_fn,
                  train_op,
                  cross_entropy_loss,
                  mean_iou,
                  input_image,
                  correct_label,
-                 keep_prob,
-                 learning_rate,
+                 keep_prob_tensor,
+                 learning_rate_tensor,
                  writer)
 
         writer.close()
 
-        helper.save_inference_samples(os.path.join(runs_dir, session_timestamp), data_dir, sess, image_shape, logits, keep_prob, input_image)
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob_tensor, input_image)
         # Make folder for current model
 
-        model_dir = os.path.join(models_dir, session_timestamp)
-        os.makedirs(model_dir)
-        saver.save(sess, os.path.join(model_dir, 'fcn8'))
+        saver.save(sess, os.path.join(models_dir, 'fcn8'))
+
+        # We use a built-in TF helper to export variables to constants
+        output_graph_def = tf.graph_util.convert_variables_to_constants(
+            sess,  # The session is used to retrieve the weights
+            tf.get_default_graph().as_graph_def(),  # The graph_def is used to retrieve the nodes
+            "logits"  # The output node names are used to select the useful nodes
+        )
+
+        # Finally we serialize and dump the output graph to the filesystem
+        with tf.gfile.GFile(os.path.join(models_dir, "frozen_inference_graph.pb"), "wb") as f:
+            f.write(output_graph_def.SerializeToString())
+
+        print("{} ops in the final graph.".format(len(output_graph_def.node)))
+
         # OPTIONAL: Apply the trained model to a video
     return
+
 
 if __name__ == '__main__':
     run()

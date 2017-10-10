@@ -112,8 +112,6 @@ def test_optimize(optimize):
 
 @test_safe
 def test_train_nn(train_nn):
-    epochs = 1
-    batch_size = 2
 
     def get_batches_fn(batch_size_param, augment_prob=0.0):
         assert(0.0 <= augment_prob <= 1.0)
@@ -127,28 +125,35 @@ def test_train_nn(train_nn):
         def flush(self):
             pass
 
+    class TrainParams:
+        batch_size = 2
+        epochs = 1
+        learning_rate = 0.0001
+        keep_prob = 1.0
+        augment_prob = 0.5
+
     train_op = tf.constant(0)
     cross_entropy_loss = tf.constant(10.11)
     mean_iou = tf.constant((1.0, 1.0))
     input_image = tf.placeholder(tf.float32, name='input_image')
     correct_label = tf.placeholder(tf.float32, name='correct_label')
-    keep_prob = tf.placeholder(tf.float32, name='keep_prob')
-    learning_rate = tf.placeholder(tf.float32, name='learning_rate')
+    keep_prob_tensor = tf.placeholder(tf.float32, name='keep_prob')
+    learning_rate_tensor = tf.placeholder(tf.float32, name='learning_rate')
     writer = Writer()
+    params = TrainParams()
 
     with tf.Session() as sess:
         parameters = {
             'sess': sess,
-            'epochs': epochs,
-            'batch_size': batch_size,
+            'params': params,
             'get_batches_fn': get_batches_fn,
             'train_op': train_op,
             'cross_entropy_loss': cross_entropy_loss,
             'mean_iou': mean_iou,
             'input_image': input_image,
             'correct_label': correct_label,
-            'keep_prob': keep_prob,
-            'learning_rate': learning_rate,
+            'keep_prob_tensor': keep_prob_tensor,
+            'learning_rate_tensor': learning_rate_tensor,
             'writer': writer}
         _prevent_print(train_nn, parameters)
 
