@@ -7,6 +7,8 @@ import shutil
 import zipfile
 import time
 import tensorflow as tf
+import cv2
+
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
@@ -57,6 +59,41 @@ def maybe_download_pretrained_vgg(data_dir):
         # Remove zip file to save space
         os.remove(os.path.join(vgg_path, vgg_filename))
 
+def rotate_image_random(img, angle=15, scale=1.0):
+    y, x, c = img.shape
+
+    M = cv2.getRotationMatrix2D((x / 2, y / 2), np.random.uniform(-angle, angle), scale)
+
+    flags = cv2.INTER_LANCZOS4 + cv2.WARP_FILL_OUTLIERS
+    border = cv2.BORDER_REPLICATE
+
+    return cv2.warpAffine(img, M, (x, y), flags=flags, borderMode=border)
+
+def translate_image_random(img, delta=6):
+    y, x, c = img.shape
+
+    M = np.float32([[1, 0, np.random.randint(-delta, delta)], [0, 1, np.random.randint(-delta, delta)]])
+
+    flags = cv2.INTER_LANCZOS4 + cv2.WARP_FILL_OUTLIERS
+    border = cv2.BORDER_REPLICATE
+
+    return cv2.warpAffine(img, M, (x, y), flags=flags, borderMode=border)
+
+def warp_image_random(img, delta=5):
+    y, x, c = img.shape
+
+    pts1 = np.float32([[0, 0], [x, 0], [x, y], [0, y]])
+    pts2 = pts1 + np.array(np.random.randint(-delta, delta, size=(4, 2)), dtype=np.float32)
+
+    M = cv2.getPerspectiveTransform(pts1, pts2)
+
+    flags = cv2.INTER_LANCZOS4 + cv2.WARP_FILL_OUTLIERS
+    border = cv2.BORDER_REPLICATE
+
+    return cv2.warpPerspective(img, M, (x, y), flags=flags, borderMode=border)
+
+def flip_image_lr(img):
+    return np.fliplr(img)
 
 def gen_batch_function(data_folder, image_shape):
     """
@@ -77,6 +114,7 @@ def gen_batch_function(data_folder, image_shape):
             re.sub(r'_(lane|road)_', '_', os.path.basename(path)): path
             for path in glob(os.path.join(data_folder, 'gt_image_2', '*_road_*.png'))}
         background_color = np.array([255, 0, 0])
+        augmentations = (rotate_image_random, translate_image_random, warp_image_random, flip_image_lr)
 
         random.shuffle(image_paths)
         for batch_i in range(0, len(image_paths), batch_size):
@@ -85,13 +123,17 @@ def gen_batch_function(data_folder, image_shape):
             for image_file in image_paths[batch_i:batch_i+batch_size]:
                 gt_image_file = label_paths[os.path.basename(image_file)]
 
-                image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
-                gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+                image = scipy.misc.imread(image_file)
+                gt_image = scipy.misc.imread(gt_image_file)
 
                 if augment_prob > 0:
                     if np.random.random() < augment_prob:
-                        image = np.fliplr(image)
-                        gt_image = np.fliplr(gt_image)
+                        augment = np.random.choice(augmentations)
+                        image = augment(image)
+                        gt_image = augment(gt_image)
+
+                image = scipy.misc.imresize(image, image_shape)
+                gt_image = scipy.misc.imresize(gt_image, image_shape)
 
                 gt_bg = np.all(gt_image == background_color, axis=2)
                 gt_bg = gt_bg.reshape(*gt_bg.shape, 1)

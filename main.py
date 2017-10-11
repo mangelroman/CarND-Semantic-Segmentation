@@ -56,14 +56,15 @@ def conv1x1_layer(input_layer, num_filters):
                             kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
 
 
-def deconv_layer(input_layer, num_filters, kernel, stride):
+def deconv_layer(input_layer, num_filters, kernel, stride, name):
     return tf.layers.conv2d_transpose(input_layer,
                                       num_filters,
                                       kernel_size=(kernel, kernel),
                                       strides=(stride, stride),
                                       padding='same',
                                       kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
+                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                      name=name)
 
 
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
@@ -75,14 +76,14 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    layer8 = deconv_layer(conv1x1_layer(vgg_layer7_out, num_classes), num_classes, 4, 2)
+    layer8 = deconv_layer(conv1x1_layer(vgg_layer7_out, num_classes), num_classes, 4, 2, 'layer8')
     layer8_4 = tf.add(layer8, conv1x1_layer(vgg_layer4_out, num_classes))
 
-    layer9 = deconv_layer(layer8_4, num_classes, 4, 2)
+    layer9 = deconv_layer(layer8_4, num_classes, 4, 2, 'layer9')
     layer9_3 = tf.add(layer9, conv1x1_layer(vgg_layer3_out, num_classes))
 
-    out = deconv_layer(layer9_3, num_classes, 16, 8)
-    return out
+    output = deconv_layer(layer9_3, num_classes, 16, 8, 'image_output')
+    return output
 tests.test_layers(layers)
 
 
@@ -188,7 +189,7 @@ def run():
 
     # OPTIONAL: Augment Images for better results
     #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
-
+    tf.set_random_seed(43)
     correct_label = tf.placeholder(tf.int32, (None, image_shape[0], image_shape[1], num_classes))
     learning_rate_tensor = tf.placeholder(tf.float32, None)
 
@@ -239,7 +240,7 @@ def run():
         output_graph_def = tf.graph_util.convert_variables_to_constants(
             sess,  # The session is used to retrieve the weights
             tf.get_default_graph().as_graph_def(),  # The graph_def is used to retrieve the nodes
-            "logits"  # The output node names are used to select the useful nodes
+            "image_output:0"  # The output node names are used to select the useful nodes
         )
 
         # Finally we serialize and dump the output graph to the filesystem
