@@ -159,11 +159,11 @@ tests.test_train_nn(train_nn)
 
 def run():
     parser = argparse.ArgumentParser(description="Semantic Segmentation Project")
-    parser.add_argument('-e', dest='epochs', type=int, default=30, help="Number of epochs to train the model")
+    parser.add_argument('-e', dest='epochs', type=int, default=50, help="Number of epochs to train the model")
     parser.add_argument('-b', dest='batch_size', type=int, default=1, help="Training batch size")
     parser.add_argument('-l', dest='learning_rate', type=float, default=0.0001, help="Training learning rate")
-    parser.add_argument('-k', dest='keep_prob', type=float, default=1.0, help="Training keep probability")
-    parser.add_argument('-a', dest='augment_prob', type=float, default=0.5, help="Augment probability of ")
+    parser.add_argument('-k', dest='keep_prob', type=float, default=0.8, help="Training keep probability")
+    parser.add_argument('-a', dest='augment_prob', type=float, default=0.0, help="Augment probability of ")
     params = parser.parse_args()
 
     num_classes = 2
@@ -232,22 +232,8 @@ def run():
         writer.close()
 
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob_tensor, input_image)
-        # Make folder for current model
 
         saver.save(sess, os.path.join(models_dir, 'fcn8'))
-
-        # We use a built-in TF helper to export variables to constants
-        output_graph_def = tf.graph_util.convert_variables_to_constants(
-            sess,  # The session is used to retrieve the weights
-            tf.get_default_graph().as_graph_def(),  # The graph_def is used to retrieve the nodes
-            "image_output:0"  # The output node names are used to select the useful nodes
-        )
-
-        # Finally we serialize and dump the output graph to the filesystem
-        with tf.gfile.GFile(os.path.join(models_dir, "frozen_inference_graph.pb"), "wb") as f:
-            f.write(output_graph_def.SerializeToString())
-
-        print("{} ops in the final graph.".format(len(output_graph_def.node)))
 
         # OPTIONAL: Apply the trained model to a video
     return
